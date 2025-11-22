@@ -1,0 +1,51 @@
+<!-- Android 特定的配置 -->
+<!-- 放在 android/app/build.gradle 的 android 块中 -->
+
+android {
+    compileSdk 34
+
+    namespace "com.example.di_guo_1_hao"
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        applicationId "com.example.di_guo_1_hao"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+
+        // 启用 MultiDex 支持（如果使用了大量依赖）
+        multiDexEnabled true
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            debuggable true
+        }
+    }
+
+    // 处理依赖冲突
+    packagingOptions {
+        exclude 'META-INF/proguard/androidx-*.pro'
+    }
+
+    lintOptions {
+        disable 'MissingDimensionActivityCreator'
+    }
+}
+
+// 依赖配置
+dependencies {
+    implementation 'androidx.multidex:multidex:2.0.1'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core:1.10.1'
+}

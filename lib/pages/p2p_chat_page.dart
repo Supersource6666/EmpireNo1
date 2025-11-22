@@ -6,7 +6,6 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import 'package:universal_io/io.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:web_socket_channel/html.dart';
@@ -71,12 +70,13 @@ class _P2PChatPageState extends State<P2PChatPage> {
   @override
   void initState() {
     super.initState();
+    print('[P2PChat][initState] myId: '+widget.myId+', peerId: '+widget.peerId+', roomId: '+widget.roomId+', wsMode: '+widget.wsMode);
     _loadHistory();
     _initClient();
   }
 
   void _loadHistory() async {
-    final url = Uri.parse('http://${AppConfig.wsHost}:${AppConfig.wsPort}/api/history?user1=${widget.myId}&user2=${widget.peerId}');
+    final url = Uri.parse('${AppConfig.apiUrl}/history?user1=${widget.myId}&user2=${widget.peerId}');
     try {
       final response = await http.get(url);
       final obj = jsonDecode(response.body);
@@ -100,42 +100,68 @@ class _P2PChatPageState extends State<P2PChatPage> {
   }
 
   void _initClient() async {
+    print('[P2PChat][_initClient] 创建ChatClient, userId: '+widget.myId+', roomId: '+widget.roomId+', peerId: '+widget.peerId);
     _client = ChatClient(
       userId: widget.myId,
       roomId: widget.roomId,
       peerId: widget.peerId,
     );
     _client!.isLanMode = widget.wsMode == 'lan';
+    
+    // 先设置 onMessage 回调，再connect
+    _client!._onMessage = (data) {
+      print("[P2PChat][onMessage] 收到WebSocket消息: $data");
+      try {
+        final obj = jsonDecode(data);
+        print("[P2PChat][onMessage] 解码后: $obj");
+        final msgType = obj['type'];
+        final msgRoom = obj['room'];
+        final myRoom = widget.roomId;
+        final msgFrom = obj['from'];
+        print('[P2PChat][onMessage] type: $msgType, room: $msgRoom, myRoom: $myRoom, from: $msgFrom, myId: ${widget.myId}');
+        if ((msgType == 'text' || msgType == 'message')) {
+          if (msgRoom == myRoom) {
+            // 过滤掉自己发送的消息（本地已渲染过）
+            if (msgFrom == widget.myId) {
+              print("[P2PChat][onMessage] 自己发送的消息，已本地渲染，跳过");;
+              return;
+            }
+            setState(() {
+              messages.add({
+                "type": "text",
+                "text": obj['body'],
+                "isMe": false,
+                "from": msgFrom,
+                "ts": obj['ts'] ?? ""
+              });
+            });
+            print("[P2PChat][onMessage] 对方消息已渲染, 当前总数: ${messages.length}, 最新: ${obj['body']}");
+            _scrollToBottom();
+          } else {
+            print('[P2PChat][onMessage][WARN] 房间号不符, msgRoom=$msgRoom, myRoom=$myRoom, 忽略消息');
+          }
+        } else {
+          print("[P2PChat][onMessage] 忽略非文本消息: type=$msgType, room=$msgRoom");
+        }
+      } catch (e) {
+        print("[P2PChat][onMessage][ERROR] 解码消息异常: $e");
+      }
+    };
+    
     await _client!.connect();
+    print('[P2PChat][_initClient] 已连接WebSocket, wsUrl: '+_client!._wsUrl);
+    
+    // 监听连接状态变化
+    _client!._onConnectionStateChanged = (isConnected) {
+      setState(() {
+        _connected = isConnected;
+      });
+      print('[P2PChat][_initClient] 连接状态: $_connected');
+    };
+    
     setState(() {
       _connected = true;
     });
-    _client!._onMessage = (data) {
-      print("WebSocket message received: $data"); // 增加日志，打印收到的消息
-      try {
-        final obj = jsonDecode(data);
-        print("Decoded WebSocket message: $obj"); // 增加日志，打印解析后的消息
-        if (obj['type'] == 'text' && obj['room'] == widget.roomId) {
-          setState(() {
-            messages.add({
-              "type": "text",
-              "text": obj['body'],
-              "isMe": obj['from'] == widget.myId, // 判断是否是当前用户发送
-              "from": obj['from'],
-              "ts": obj['ts'] ?? ""
-            });
-          });
-
-          // 将消息列表中的条数打印出来
-          print("Message length: ${messages.length}, Latest message: ${obj['body']}, Room: ${obj['room'] ?? 'N/A'}");
-          _scrollToBottom();
-        } else {
-          print("Message ignored: type=${obj['type']}, room=${obj['room']}"); // 增加日志，打印被忽略的消息
-        }
-      } catch (e) {
-        print("Error decoding WebSocket message: $e"); // 增加日志，捕获解析错误
-      }
-    };
   }
 
   Future<void> _sendText() async {
@@ -143,7 +169,6 @@ class _P2PChatPageState extends State<P2PChatPage> {
     setState(() { _sending = true; });
     final text = _controller.text.trim();
     final ts = DateTime.now().toIso8601String();
-    // 先本地渲染，后ws发送
     setState(() {
       messages.add({
         "type": "text",
@@ -204,8 +229,26 @@ class _P2PChatPageState extends State<P2PChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    print('[P2PChat][build] 渲染P2PChatPage, 消息数: ${messages.length}');
     return Scaffold(
-      appBar: AppBar(title: Text('与${widget.peerName} P2P聊天')),
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Expanded(child: Text('与${widget.peerName} P2P聊天')),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: _connected ? Colors.green : Colors.red,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                _connected ? '已连接' : '未连接',
+                style: TextStyle(fontSize: 12, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
       body: Column(
         children: [
           Expanded(
@@ -215,6 +258,7 @@ class _P2PChatPageState extends State<P2PChatPage> {
               itemBuilder: (context, index) {
                 final msg = messages[index];
                 final isMe = msg["isMe"] ?? false;
+                print('[P2PChat][build] 渲染消息 index=$index, text=${msg["text"]}, isMe=$isMe, from=${msg["from"]}');
                 return ChatBubble(
                   text: msg["text"] ?? "",
                   isMe: isMe,
@@ -228,17 +272,18 @@ class _P2PChatPageState extends State<P2PChatPage> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.image),
-                  onPressed: _sendImage,
+                  onPressed: _sending ? null : _sendImage,
                 ),
                 Expanded(
                   child: TextField(
                     controller: _controller,
+                    enabled: !_sending,
                     decoration: const InputDecoration(hintText: '输入消息...'),
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.send),
-                  onPressed: _sendText,
+                  onPressed: _sending ? null : _sendText,
                 ),
               ],
             ),
@@ -252,62 +297,112 @@ class _P2PChatPageState extends State<P2PChatPage> {
 // ========== 分片/压缩/二进制图片发送 ========== 
 class ChatClient {
   static const int CHUNK_SIZE = 64 * 1024; // 64KB per chunk
+  static const int MAX_RECONNECT_ATTEMPTS = 5;
+  static const int RECONNECT_DELAY_MS = 2000;
+  
   dynamic _ws; // WebSocket or WebSocketChannel
   bool isLanMode = true;
   final String userId;
   final String roomId;
-  final String peerId; // 新增
+  final String peerId;
   Function(dynamic)? _onMessage;
+  Function(bool)? _onConnectionStateChanged; // 连接状态变化回调
+  int _reconnectAttempts = 0;
 
-  ChatClient({required this.userId, required this.roomId, required this.peerId}); // 修改
+  ChatClient({required this.userId, required this.roomId, required this.peerId});
 
   String get _wsUrl => isLanMode ? AppConfig.wsUrl : AppConfig.wssUrl;
 
   Future<void> connect() async {
-    if (_ws != null) return;
-    if (kIsWeb) {
-      _ws = HtmlWebSocketChannel.connect(_wsUrl);
-      _ws.stream.listen(_onMessage, onDone: _onDone, onError: _onError, cancelOnError: true);
-      _ws.sink.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
-    } else {
-      _ws = IOWebSocketChannel.connect(_wsUrl);
-      _ws.stream.listen(_onMessage, onDone: _onDone, onError: _onError, cancelOnError: true);
-      _ws.sink.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
+    if (_ws != null) {
+      print('[ChatClient][connect] WebSocket已连接，跳过重复连接');
+      return;
+    }
+    
+    try {
+      print('[ChatClient][connect] 开始连接, wsUrl: $_wsUrl');
+      if (kIsWeb) {
+        _ws = HtmlWebSocketChannel.connect(_wsUrl);
+        _ws.stream.listen((msg) => _onMessage?.call(msg), onDone: _onDone, onError: _onError, cancelOnError: false);
+        _ws.sink.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
+      } else {
+        _ws = IOWebSocketChannel.connect(_wsUrl);
+        _ws.stream.listen((msg) => _onMessage?.call(msg), onDone: _onDone, onError: _onError, cancelOnError: false);
+        _ws.sink.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
+      }
+      _reconnectAttempts = 0;
+      _onConnectionStateChanged?.call(true);
+      print('[ChatClient][connect] 连接成功');
+    } catch (e) {
+      print('[ChatClient][connect][ERROR] 连接失败: $e');
+      _onConnectionStateChanged?.call(false);
+      _reconnect();
     }
   }
 
-  void _onDone() {
+  void _reconnect() async {
+    if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      print('[ChatClient][_reconnect] 重连次数超过上限，放弃重连');
+      return;
+    }
+    _reconnectAttempts++;
+    print('[ChatClient][_reconnect] 准备重连 (第 $_reconnectAttempts 次)，延迟 ${RECONNECT_DELAY_MS}ms');
+    await Future.delayed(Duration(milliseconds: RECONNECT_DELAY_MS));
     _ws = null;
+    await connect();
+  }
+
+  void _onDone() {
+    print('[ChatClient][_onDone] WebSocket 连接已关闭');
+    _ws = null;
+    _onConnectionStateChanged?.call(false);
+    _reconnect();
   }
 
   void _onError(error) {
+    print('[ChatClient][_onError] WebSocket 错误: $error');
     _ws = null;
+    _onConnectionStateChanged?.call(false);
+    _reconnect();
   }
 
   void disconnect() {
     if (_ws == null) return;
+    print('[ChatClient][disconnect] 断开连接');
+    _reconnectAttempts = MAX_RECONNECT_ATTEMPTS; // 禁用自动重连
     if (kIsWeb) {
       _ws.sink.close();
     } else {
       _ws.sink.close();
     }
     _ws = null;
+    _onConnectionStateChanged?.call(false);
   }
 
   Future<void> sendText(String text, {String? ts}) async {
-    if (_ws == null) await connect();
+    if (_ws == null) {
+      print('[ChatClient][sendText] WebSocket 未连接，尝试重新连接');
+      await connect();
+    }
     final msg = {
       "type": "text",
       "room": roomId,
       "from": userId,
-      "to": peerId, // 新增，确保后端保存消息
+      "to": peerId,
       "body": text,
       "ts": ts ?? DateTime.now().toIso8601String()
     };
-    if (kIsWeb) {
-      _ws.sink.add(jsonEncode(msg));
-    } else {
-      _ws.sink.add(jsonEncode(msg));
+    try {
+      if (kIsWeb) {
+        _ws.sink.add(jsonEncode(msg));
+      } else {
+        _ws.sink.add(jsonEncode(msg));
+      }
+      print('[ChatClient][sendText] 消息已发送: $text');
+    } catch (e) {
+      print('[ChatClient][sendText][ERROR] 发送失败: $e');
+      _reconnect();
+      throw e;
     }
   }
 
@@ -322,7 +417,7 @@ class ChatClient {
       );
       if (result.isNotEmpty) compressed = Uint8List.fromList(result);
     } catch (e) {
-      print("compress fail, use original: $e");
+      print("[ChatClient][sendImage] 压缩失败，使用原始: $e");
     }
     final imageId = Uuid().v4();
     final totalSize = compressed.length;

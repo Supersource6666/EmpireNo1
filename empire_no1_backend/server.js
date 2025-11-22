@@ -142,15 +142,18 @@ const rooms = {};
 wss.on('connection', (ws, req) => {
   let userId = null;
   let roomId = null;
+  console.log('[WebSocket] 新连接，当前连接数:', wss.clients.size);
 
   ws.on('message', (message) => {
     let data;
     try {
       data = JSON.parse(message);
     } catch (e) {
+      console.log('[WebSocket][ERROR] JSON解析失败:', e.message);
       ws.send(JSON.stringify({ error: 'Invalid JSON' }));
       return;
     }
+    console.log('[WebSocket] 收到消息:', JSON.stringify(data));
     if (data.type === 'join') {
       userId = data.from || uuidv4();
       roomId = data.room;
@@ -158,6 +161,7 @@ wss.on('connection', (ws, req) => {
       rooms[roomId][userId] = ws;
       // 记录用户 WebSocket
       userSockets[userId] = ws;
+      console.log('[WebSocket][join] 用户加入: userId='+userId+', roomId='+roomId+', 房间内用户数: '+Object.keys(rooms[roomId]).length);
       // 广播用户列表
       broadcast(roomId, {
         type: 'user_list',
@@ -174,12 +178,14 @@ wss.on('connection', (ws, req) => {
         }));
       }
     } else if (data.type === 'message' || data.type === 'text') {
-      // Ensure the room field is included in the broadcasted message
+      // 统一广播 type: 'text'，并补充 ts 字段
+      console.log('[WebSocket][message] userId='+userId+', roomId='+roomId+', body='+data.body+', 房间内用户数: '+(rooms[roomId] ? Object.keys(rooms[roomId]).length : 0));
       broadcast(roomId, {
-        type: data.type,
+        type: 'text',
         from: userId,
         body: data.body,
-        room: roomId // Add the room field explicitly
+        room: roomId,
+        ts: new Date().toISOString()
       });
       // Save the message to the database
       if (data.to) {
@@ -204,15 +210,24 @@ wss.on('connection', (ws, req) => {
 });
 
 function broadcast(roomId, msg) {
-  if (!rooms[roomId]) return;
-  Object.values(rooms[roomId]).forEach(client => {
+  if (!rooms[roomId]) {
+    console.log('[broadcast] 房间不存在: '+roomId);
+    return;
+  }
+  const clientCount = Object.keys(rooms[roomId]).length;
+  console.log('[broadcast] roomId='+roomId+', 房间内用户数: '+clientCount+', 消息类型: '+msg.type);
+  Object.entries(rooms[roomId]).forEach(([userId, client]) => {
     if (client.readyState === WebSocket.OPEN) {
+      console.log('[broadcast] 向用户 '+userId+' 转发消息');
       client.send(JSON.stringify(msg));
+    } else {
+      console.log('[broadcast] 用户 '+userId+' 连接已关闭，状态: '+client.readyState);
     }
   });
 }
 
-const PORT = 3000;
-server.listen(PORT, () => {
-  console.log(`EmpireNo1 backend running on port ${PORT}`);
+const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(PORT, HOST, () => {
+  console.log(`EmpireNo1 backend running on http://${HOST}:${PORT}`);
 });

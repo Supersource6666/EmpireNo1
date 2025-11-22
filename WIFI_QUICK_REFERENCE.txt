@@ -1,0 +1,193 @@
+# WiFi 安装 APK - 快速参考卡
+
+## ⚡ 最快的方法（推荐）
+
+### 一键自动安装
+
+```powershell
+install_apk_wifi.bat
+```
+
+脚本会自动：
+1. ✅ 启用 TCP 模式
+2. ✅ 获取设备 IP
+3. ✅ 连接 WiFi
+4. ✅ 安装 APK
+
+**总耗时**: ~3-5 分钟
+
+---
+
+## 📱 手动方法（3 步）
+
+### 前置条件
+
+- ✅ 设备通过 USB 连接
+- ✅ USB 调试已启用
+- ✅ 设备和电脑同一 WiFi
+- ✅ APK 已构建
+
+### 步骤 1：启用 TCP
+
+```powershell
+adb tcpip 5555
+```
+
+### 步骤 2：连接 WiFi
+
+获取设备 IP（从设备设置中或运行 `adb shell ip addr show wlan0`）
+
+```powershell
+adb connect <device-ip>:5555
+```
+
+例如：
+```powershell
+adb connect 192.168.1.105:5555
+```
+
+### 步骤 3：安装 APK
+
+```powershell
+# Debug 版本
+adb install -r build/app/outputs/apk/debug/app-debug.apk
+
+# Release 版本
+adb install -r build/app/outputs/apk/release/app-release.apk
+```
+
+---
+
+## 🔧 更多功能
+
+### 完整 WiFi 管理工具
+
+```powershell
+wifi_device_manager.bat
+```
+
+菜单选项：
+```
+[1] 启用 WiFi 调试
+[2] 通过 WiFi 连接设备
+[3] 查看已连接的设备
+[4] 通过 WiFi 安装 APK
+[5] 通过 WiFi 运行应用
+[6] 通过 WiFi 查看日志
+[7] 断开 WiFi 连接
+[8] 切换回 USB 调试
+[9] 完整的 WiFi 工作流
+```
+
+---
+
+## 📋 常用命令
+
+```powershell
+# 查看设备
+adb devices
+
+# 启用 TCP 模式
+adb tcpip 5555
+
+# 连接设备
+adb connect 192.168.1.105:5555
+
+# 断开设备
+adb disconnect 192.168.1.105:5555
+
+# 安装 APK
+adb install -r app-debug.apk
+
+# 卸载应用
+adb uninstall com.example.di_guo_1_hao
+
+# 启动应用
+adb shell am start -n com.example.di_guo_1_hao/.MainActivity
+
+# 查看日志
+adb logcat -s flutter
+
+# 清除应用数据
+adb shell pm clear com.example.di_guo_1_hao
+
+# 切换回 USB
+adb usb
+```
+
+---
+
+## 🆘 常见问题速查
+
+### Q: 连接失败？
+
+```powershell
+# 1. 检查设备 IP 是否正确
+ping 192.168.1.105
+
+# 2. 重新启用 TCP 模式
+adb tcpip 5555
+
+# 3. 重新连接
+adb connect 192.168.1.105:5555
+```
+
+### Q: 安装失败？
+
+```powershell
+# 1. 卸载旧版本
+adb uninstall com.example.di_guo_1_hao
+
+# 2. 重新安装
+adb install build/app/outputs/apk/debug/app-debug.apk
+
+# 3. 如果还是失败，清理数据后重装
+adb shell pm clear com.example.di_guo_1_hao
+```
+
+### Q: 如何获取设备 IP？
+
+```powershell
+# 方式 1：命令行
+adb shell ip addr show wlan0
+
+# 方式 2：设备设置
+# 设置 → WiFi → 连接的网络 → IP 地址
+
+# 方式 3：查看路由器管理界面
+```
+
+### Q: 如何返回 USB 模式？
+
+```powershell
+adb usb
+# 或重新连接 USB 数据线
+```
+
+---
+
+## ✅ 完整检查清单
+
+- [ ] 设备 USB 连接
+- [ ] USB 调试已启用
+- [ ] WiFi 已连接
+- [ ] 已获取设备 IP
+- [ ] APK 已构建
+- [ ] TCP 模式已启用
+- [ ] WiFi 连接已建立
+- [ ] APK 安装成功
+- [ ] 应用已启动
+
+---
+
+## 📞 需要更多帮助？
+
+查看完整指南：`WIFI_INSTALL_GUIDE.md`
+
+---
+
+**现在就试试吧！** 🚀
+
+```powershell
+install_apk_wifi.bat
+```

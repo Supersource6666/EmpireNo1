@@ -13,6 +13,7 @@ import 'pages/schedule_helper_page.dart';
 import 'services/feedback_service.dart';
 
 void main() {
+  print('【调试】main() 启动');
   runApp(const MyApp());
 }
 
@@ -52,6 +53,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    print('【调试】HomePage build 渲染, 当前tab: "+_selectedIndex.toString()+"');
     return Scaffold(
       body: _pages[_selectedIndex],
       bottomNavigationBar: Container(
