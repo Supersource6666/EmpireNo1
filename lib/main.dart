@@ -9,6 +9,7 @@ import 'pages/settings_page.dart';
 import 'pages/custom_food_page.dart';
 import 'pages/chat_room_page.dart';
 import 'pages/book_reader_page.dart';
+import 'pages/schedule_helper_page.dart';
 import 'services/feedback_service.dart';
 
 void main() {
@@ -46,34 +47,54 @@ class _HomePageState extends State<HomePage> {
     const FoodSelectorPage(),
     const ChatRoomPage(),
     const BookReaderPage(),
+    const ScheduleHelperPage(),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: _pages[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        selectedItemColor: Colors.deepOrange,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.restaurant),
-            label: '美食选择器',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.chat),
-            label: '聊天室',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.menu_book),
-            label: '听读书',
-          ),
-        ],
-        onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 8,
+              offset: Offset(0, -2),
+            ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          backgroundColor: Colors.transparent,
+          currentIndex: _selectedIndex,
+          selectedItemColor: Colors.deepOrange,
+          unselectedItemColor: Colors.grey,
+          type: BottomNavigationBarType.fixed,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.restaurant),
+              label: '美食选择器',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.chat),
+              label: '聊天室',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.menu_book),
+              label: '听读书',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.event_note),
+              label: '日程助手',
+            ),
+          ],
+          onTap: (index) {
+            setState(() {
+              _selectedIndex = index;
+            });
+          },
+        ),
       ),
     );
   }
