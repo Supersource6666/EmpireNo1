@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'p2p_chat_page.dart';
+import '../config.dart';
 
 class ChatRoomPage extends StatefulWidget {
 	const ChatRoomPage({super.key});
@@ -20,6 +22,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 	bool _wsConnected = false;
 
 	String _username = "访客";
+	String _userId = ""; // 新增字段
 	bool _isLoggedIn = false;
 	String _wsMode = "lan";
 	String _password = "";
@@ -30,6 +33,15 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 	String _groupCode = "";
 	List<Map<String, dynamic>> _groupMembers = [];
 	List<Map<String, dynamic>> _friendRequests = [];
+
+	String get _apiBaseUrl {
+		return 'http://${AppConfig.wsHost}:${AppConfig.wsPort}';
+	}
+
+	String getRoomId(String myId, String peerId) {
+		// 固定顺序，保证双方roomId一致
+		return myId.compareTo(peerId) < 0 ? '${myId}_$peerId' : '${peerId}_$myId';
+	}
 
 	@override
 	void didChangeDependencies() {
@@ -50,12 +62,12 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 	void _connectWebSocket() {
 		if (_wsChannel != null) return;
 		final wsUrl = _wsMode == 'lan'
-				? 'ws://192.168.1.104:3000'
+				? 'ws://${AppConfig.wsHost}:${AppConfig.wsPort}'
 				: 'wss://yourserver.example.com:443';
 		try {
 			_wsChannel = IOWebSocketChannel.connect(wsUrl);
 			_wsChannel!.sink.add(
-				jsonEncode({"type": "join", "from": _username, "room": _username}),
+				jsonEncode({"type": "join", "from": _userId, "room": _userId}),
 			);
 			_wsChannel!.stream.listen((data) {
 				_handleWsMessage(data);
@@ -74,35 +86,37 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 	}
 
 	void _handleWsMessage(dynamic data) {
-		try {
-			final msg = jsonDecode(data);
-			if (msg['type'] == 'friend_request' && mounted) {
-				_fetchFriendRequests();
-				showDialog(
-					context: context,
-					builder: (context) => AlertDialog(
-						title: const Text('收到好友申请'),
-						content: Text('来自: ${msg['from']}'),
-						actions: [
-							TextButton(
-								onPressed: () => Navigator.pop(context),
-								child: const Text('知道了'),
-							),
-						],
-					),
-				);
-			}
-		} catch (e) {}
+	try {
+		final msg = jsonDecode(data);
+		if (msg['type'] == 'friend_request' && mounted) {
+		_fetchFriendRequests();
+		showDialog(
+			context: context,
+			builder: (context) => AlertDialog(
+			title: const Text('收到好友申请'),
+			content: Text('来自: ${msg['from']}'),
+			actions: [
+				TextButton(
+				onPressed: () => Navigator.pop(context),
+				child: const Text('知道了'),
+				),
+			],
+			),
+		);
+		} else if (msg['type'] == 'friend_update' && mounted) {
+		_fetchFriends();
+		}
+	} catch (e) {}
 	}
 
 	Future<void> _fetchFriends() async {
 		if (!_isLoggedIn) return;
-		final url = Uri.parse('http://192.168.1.104:3000/api/friends?userId=$_username');
+		final url = Uri.parse('$_apiBaseUrl/api/friends?userId=$_userId');
 		try {
-			final client = HttpClient();
-			final request = await client.getUrl(url);
-			final response = await request.close();
-			final respBody = await response.transform(utf8.decoder).join();
+			final response = kIsWeb
+				? await http.get(url)
+				: await http.get(url);
+			final respBody = response.body;
 			final List<dynamic> data = jsonDecode(respBody);
 			setState(() {
 				users = data.map((e) => {"id": e["id"], "name": e["username"]}).toList();
@@ -112,12 +126,12 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
 	Future<void> _fetchFriendRequests() async {
 		if (!_isLoggedIn) return;
-		final url = Uri.parse('http://192.168.1.104:3000/api/friend_requests?userId=$_username');
+		final url = Uri.parse('$_apiBaseUrl/api/friend_requests?userId=$_userId');
 		try {
-			final client = HttpClient();
-			final request = await client.getUrl(url);
-			final response = await request.close();
-			final respBody = await response.transform(utf8.decoder).join();
+			final response = kIsWeb
+				? await http.get(url)
+				: await http.get(url);
+			final respBody = response.body;
 			final List<dynamic> data = jsonDecode(respBody);
 			setState(() {
 				_friendRequests = data.cast<Map<String, dynamic>>();
@@ -126,15 +140,13 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 	}
 
 	Future<void> _handleFriendRequest(int requestId, bool accept) async {
-		final url = Uri.parse('http://192.168.1.104:3000/api/handle_friend_request');
+		final url = Uri.parse('$_apiBaseUrl/api/handle_friend_request');
 		try {
-			final client = HttpClient();
-			final request = await client.postUrl(url);
-			request.headers.set('content-type', 'application/json');
-			final reqBody = jsonEncode({"requestId": requestId, "accept": accept});
-			request.add(utf8.encode(reqBody));
-			final response = await request.close();
-			final respBody = await response.transform(utf8.decoder).join();
+			final response = await http.post(url,
+				headers: {'content-type': 'application/json'},
+				body: jsonEncode({"requestId": requestId, "accept": accept}),
+			);
+			final respBody = response.body;
 			if (respBody.contains('success')) {
 				ScaffoldMessenger.of(context).showSnackBar(
 					SnackBar(content: Text(accept ? '已接受好友申请' : '已拒绝好友申请'), backgroundColor: accept ? Colors.green : Colors.red, duration: Duration(seconds: 1)),
@@ -151,12 +163,10 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 
 	Future<void> _searchUser() async {
 		if (_searchNickname.trim().isEmpty) return;
-		final url = Uri.parse('http://192.168.1.104:3000/api/search_user?nickname=$_searchNickname');
+		final url = Uri.parse('$_apiBaseUrl/api/search_user?nickname=$_searchNickname');
 		try {
-			final client = HttpClient();
-			final request = await client.getUrl(url);
-			final response = await request.close();
-			final respBody = await response.transform(utf8.decoder).join();
+			final response = await http.get(url);
+			final respBody = response.body;
 			final List<dynamic> data = jsonDecode(respBody);
 			setState(() {
 				_searchResults = data.map((e) => {"id": e["id"], "name": e["username"]}).toList();
@@ -165,15 +175,13 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 	}
 
 	Future<void> _sendFriendRequest(String toUser) async {
-		final url = Uri.parse('http://192.168.1.104:3000/api/send_friend_request');
+		final url = Uri.parse('$_apiBaseUrl/api/send_friend_request');
 		try {
-			final client = HttpClient();
-			final request = await client.postUrl(url);
-			request.headers.set('content-type', 'application/json');
-			final reqBody = jsonEncode({"fromUser": _username, "toUser": toUser});
-			request.add(utf8.encode(reqBody));
-			final response = await request.close();
-			final respBody = await response.transform(utf8.decoder).join();
+			final response = await http.post(url,
+				headers: {'content-type': 'application/json'},
+				body: jsonEncode({"fromUser": _userId, "toUser": toUser}),
+			);
+			final respBody = response.body;
 			if (respBody.contains('success')) {
 				ScaffoldMessenger.of(context).showSnackBar(
 					SnackBar(content: Text('好友申请已发送'), backgroundColor: Colors.blue, duration: Duration(seconds: 1)),
@@ -256,7 +264,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 										: Column(
 												mainAxisSize: MainAxisSize.min,
 												children: _friendRequests.map((req) => ListTile(
-													title: Text('来自: ${req["from_user"]}'),
+													title: Text('来自: ${req["from_user_name"] ?? req["from_user"]}'), // 优先显示name
 													subtitle: Text('时间: ${req["ts"]}'),
 													trailing: Row(
 														mainAxisSize: MainAxisSize.min,
@@ -320,23 +328,17 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 							ElevatedButton(
 								onPressed: () async {
 									if (_groupCode.length == 4 && _isLoggedIn) {
-										final url = Uri.parse('http://192.168.1.104:3000/api/group');
+										final url = Uri.parse('$_apiBaseUrl/api/group');
 										try {
-											final client = HttpClient();
-											final request = await client.postUrl(url);
-											request.headers.set('content-type', 'application/json');
-											final reqBody = jsonEncode({"code": _groupCode, "userId": _username});
-											request.add(utf8.encode(reqBody));
-											final response = await request.close();
-											final respBody = await response.transform(utf8.decoder).join();
-											final groupId = jsonDecode(respBody)["groupId"];
+											final response = await http.post(url,
+												headers: {'content-type': 'application/json'},
+											body: jsonEncode({"code": _groupCode, "userId": _userId}),
+											);
+											final groupId = jsonDecode(response.body)["groupId"];
 											// 获取群成员
-											final url2 = Uri.parse('http://192.168.1.104:3000/api/group_members?groupId=$groupId');
-											final client2 = HttpClient();
-											final request2 = await client2.getUrl(url2);
-											final response2 = await request2.close();
-											final respBody2 = await response2.transform(utf8.decoder).join();
-											final List<dynamic> members = jsonDecode(respBody2);
+											final url2 = Uri.parse('$_apiBaseUrl/api/group_members?groupId=$groupId');
+											final response2 = await http.get(url2);
+											final List<dynamic> members = jsonDecode(response2.body);
 											setState(() {
 												_groupMembers = members.map((e) => {"id": e["id"], "name": e["username"]}).toList();
 											});
@@ -407,129 +409,128 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 								children: [
 									ElevatedButton(
 										onPressed: () async {
-											if (tempUsername.isNotEmpty && tempPassword.isNotEmpty) {
-												final url = Uri.parse('http://192.168.1.104:3000/api/register');
-												try {
-													final client = HttpClient();
-													final request = await client.postUrl(url);
-													request.headers.set('content-type', 'application/json');
-													final reqBody = jsonEncode({"username": tempUsername, "password": tempPassword});
-													request.add(utf8.encode(reqBody));
-													final response = await request.close();
-													final respBody = await response.transform(utf8.decoder).join();
-													if (respBody.contains('success')) {
-														setState(() {
-															_username = tempUsername;
-															_password = tempPassword;
-															_isLoggedIn = true;
-															_wsMode = tempWsMode;
-															_wsChannel?.sink.close();
-															_wsChannel = null;
-														});
-														Navigator.pop(context);
-														ScaffoldMessenger.of(context).showSnackBar(
-															const SnackBar(content: Text('注册成功，已登录'), backgroundColor: Colors.green, duration: Duration(seconds: 1)),
-														);
-														_fetchFriends();
-														_fetchFriendRequests();
-														_connectWebSocket();
-													} else {
-														ScaffoldMessenger.of(context).showSnackBar(
-															const SnackBar(content: Text('注册失败'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
-														);
-													}
-												} catch (e) {
+										if (tempUsername.isNotEmpty && tempPassword.isNotEmpty) {
+											final url = Uri.parse('$_apiBaseUrl/api/register');
+											try {
+												final response = await http.post(url,
+													headers: {'content-type': 'application/json'},
+												body: jsonEncode({"username": tempUsername, "password": tempPassword}),
+												);
+												final respBody = jsonDecode(response.body);
+												if (respBody['success'] == true && respBody['user'] != null) {
+													setState(() {
+														_username = tempUsername;
+														_password = tempPassword;
+														_isLoggedIn = true;
+														_wsMode = tempWsMode;
+														_userId = respBody['user']['id'];
+														_wsChannel?.sink.close();
+														_wsChannel = null;
+													});
+													Navigator.pop(context);
 													ScaffoldMessenger.of(context).showSnackBar(
-														SnackBar(content: Text('注册异常: $e'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
+														const SnackBar(content: Text('注册成功，已登录'), backgroundColor: Colors.green, duration: Duration(seconds: 1)),
+													);
+													_fetchFriends();
+													_fetchFriendRequests();
+													_connectWebSocket();
+												} else {
+													ScaffoldMessenger.of(context).showSnackBar(
+														const SnackBar(content: Text('注册失败'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
 													);
 												}
+											} catch (e) {
+												ScaffoldMessenger.of(context).showSnackBar(
+													SnackBar(content: Text('注册异常: $e'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
+												);
 											}
-										},
-										child: const Text('注册'),
-									),
-									const SizedBox(width: 12),
-									ElevatedButton(
-										onPressed: () async {
-											if (tempUsername.isNotEmpty && tempPassword.isNotEmpty) {
-												final url = Uri.parse('http://192.168.1.104:3000/api/login');
-												try {
-													final client = HttpClient();
-													final request = await client.postUrl(url);
-													request.headers.set('content-type', 'application/json');
-													final reqBody = jsonEncode({"username": tempUsername, "password": tempPassword});
-													request.add(utf8.encode(reqBody));
-													final response = await request.close();
-													final respBody = await response.transform(utf8.decoder).join();
-													if (respBody.contains('success')) {
-														setState(() {
-															_username = tempUsername;
-															_password = tempPassword;
-															_isLoggedIn = true;
-															_wsMode = tempWsMode;
-															_wsChannel?.sink.close();
-															_wsChannel = null;
-														});
-														Navigator.pop(context);
-														ScaffoldMessenger.of(context).showSnackBar(
-															const SnackBar(content: Text('登录成功'), backgroundColor: Colors.green, duration: Duration(seconds: 1)),
-														);
-														_fetchFriends();
-														_fetchFriendRequests();
-														_connectWebSocket();
-													} else {
-														ScaffoldMessenger.of(context).showSnackBar(
-															const SnackBar(content: Text('登录失败'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
-														);
-													}
-												} catch (e) {
-													ScaffoldMessenger.of(context).showSnackBar(
-														SnackBar(content: Text('登录异常: $e'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
-													);
-												}
-											}
-										},
-										child: const Text('登录'),
-									),
-									const SizedBox(width: 12),
-									ElevatedButton(
-										onPressed: () {
-											setState(() {
-												_username = "访客";
-												_password = "";
-												_isLoggedIn = false;
-												_wsChannel?.sink.close();
-												_wsChannel = null;
-											});
-											Navigator.pop(context);
-											ScaffoldMessenger.of(context).showSnackBar(
-												const SnackBar(content: Text('已切换为访客'), backgroundColor: Colors.blue, duration: Duration(seconds: 1)),
+										}
+									},
+									child: const Text('注册'),
+								),
+								const SizedBox(width: 12),
+								ElevatedButton(
+									onPressed: () async {
+									if (tempUsername.isNotEmpty && tempPassword.isNotEmpty) {
+										final url = Uri.parse('$_apiBaseUrl/api/login');
+										try {
+											final response = await http.post(url,
+												headers: {'content-type': 'application/json'},
+											body: jsonEncode({"username": tempUsername, "password": tempPassword}),
 											);
-											_fetchFriends();
-											_fetchFriendRequests();
-										},
-										child: const Text('切换访客'),
-									),
-								],
-							),
-							const SizedBox(height: 10),
-							DropdownButtonFormField<String>(
-								value: tempWsMode,
-								decoration: const InputDecoration(labelText: '通信模式'),
-								items: const [
-									DropdownMenuItem(value: 'lan', child: Text('局域网通信')),
-									DropdownMenuItem(value: 'remote', child: Text('远程服务器中转')),
-								],
-								onChanged: (v) => tempWsMode = v ?? "lan",
-							),
-						],
-					),
-					actions: [
-						TextButton(
-							onPressed: () => Navigator.pop(context),
-							child: const Text('取消'),
+											final respBody = jsonDecode(response.body);
+											if (respBody['success'] == true && respBody['user'] != null) {
+												setState(() {
+													_username = tempUsername;
+													_password = tempPassword;
+													_isLoggedIn = true;
+													_wsMode = tempWsMode;
+													_userId = respBody['user']['id'];
+													_wsChannel?.sink.close();
+													_wsChannel = null;
+												});
+												Navigator.pop(context);
+												ScaffoldMessenger.of(context).showSnackBar(
+													const SnackBar(content: Text('登录成功'), backgroundColor: Colors.green, duration: Duration(seconds: 1)),
+												);
+												_fetchFriends();
+												_fetchFriendRequests();
+												_connectWebSocket();
+											} else {
+												ScaffoldMessenger.of(context).showSnackBar(
+													const SnackBar(content: Text('登录失败'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
+												);
+											}
+										} catch (e) {
+											ScaffoldMessenger.of(context).showSnackBar(
+												SnackBar(content: Text('登录异常: $e'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
+											);
+										}
+									}
+								},
+								child: const Text('登录'),
+								),
+								const SizedBox(width: 12),
+								ElevatedButton(
+									onPressed: () {
+									setState(() {
+										_username = "访客";
+										_password = "";
+										_isLoggedIn = false;
+										_userId = "";
+										_wsChannel?.sink.close();
+										_wsChannel = null;
+									});
+									Navigator.pop(context);
+									ScaffoldMessenger.of(context).showSnackBar(
+										const SnackBar(content: Text('已切换为访客'), backgroundColor: Colors.blue, duration: Duration(seconds: 1)),
+									);
+									_fetchFriends();
+									_fetchFriendRequests();
+								},
+								child: const Text('切换访客'),
+								),
+							],
+						),
+						const SizedBox(height: 10),
+						DropdownButtonFormField<String>(
+							value: tempWsMode,
+							decoration: const InputDecoration(labelText: '通信模式'),
+							items: const [
+								DropdownMenuItem(value: 'lan', child: Text('局域网通信')),
+								DropdownMenuItem(value: 'remote', child: Text('远程服务器中转')),
+							],
+							onChanged: (v) => tempWsMode = v ?? "lan",
 						),
 					],
-				);
+				),
+				actions: [
+					TextButton(
+						onPressed: () => Navigator.pop(context),
+						child: const Text('取消'),
+					),
+				],
+			);
 			},
 		);
 	}
@@ -538,7 +539,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 	Widget build(BuildContext context) {
 		return Scaffold(
 			appBar: AppBar(
-				title: const Text('QQ模拟聊天室'),
+				title: const Text('模拟聊天室'),
 				actions: [
 					IconButton(
 						icon: const Icon(Icons.settings),
@@ -589,11 +590,10 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 										itemBuilder: (context, index) {
 											final user = users[index];
 											return ListTile(
-												leading: CircleAvatar(
-													backgroundImage: NetworkImage("https://q1.qlogo.cn/g?b=qq&nk=${user["id"]}&s=100"),
-												),
+												leading: CircleAvatar(child: Icon(Icons.person)), // 本地头像
 												title: Text(user["name"] ?? ""),
 												onTap: () {
+													final roomId = getRoomId(_userId, user["id"] ?? "");
 													Navigator.push(
 														context,
 														MaterialPageRoute(
@@ -601,6 +601,8 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 																peerId: user["id"] ?? "",
 																peerName: user["name"] ?? "",
 																wsMode: _wsMode,
+																myId: _userId,
+																roomId: roomId,
 															),
 														),
 													);
@@ -629,10 +631,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 															isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
 													children: [
 														if (!isMe)
-															CircleAvatar(
-																backgroundImage: NetworkImage(msg["avatar"] ?? ""),
-																radius: 22,
-															),
+															CircleAvatar(child: Icon(Icons.person), radius: 22), // 本地头像
 														if (!isMe) const SizedBox(width: 8),
 														Flexible(
 															child: Column(
@@ -673,10 +672,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 														),
 														if (isMe) const SizedBox(width: 8),
 														if (isMe)
-															CircleAvatar(
-																backgroundImage: NetworkImage(msg["avatar"] ?? ""),
-																radius: 22,
-															),
+															CircleAvatar(child: Icon(Icons.person), radius: 22), // 本地头像
 													],
 												);
 											},

@@ -8,13 +8,52 @@ import 'package:uuid/uuid.dart';
 import 'package:universal_io/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
-// 移除web平台相关导入，移动端/桌面用dart:io和web_socket_channel/io.dart
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:web_socket_channel/html.dart';
+import 'package:http/http.dart' as http;
+import '../../config.dart';
+
+class ChatBubble extends StatelessWidget {
+  final String text;
+  final bool isMe;
+
+  const ChatBubble({required this.text, required this.isMe, Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+      children: [
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          padding: const EdgeInsets.all(12),
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
+          decoration: BoxDecoration(
+            color: isMe ? Colors.blueAccent : Colors.grey[300],
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(12),
+              topRight: Radius.circular(12),
+              bottomLeft: isMe ? Radius.circular(12) : Radius.zero,
+              bottomRight: isMe ? Radius.zero : Radius.circular(12),
+            ),
+          ),
+          child: Text(
+            text,
+            style: TextStyle(color: isMe ? Colors.white : Colors.black87),
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 class P2PChatPage extends StatefulWidget {
   final String peerId;
   final String peerName;
   final String wsMode; // "lan" or "remote"
-  const P2PChatPage({required this.peerId, required this.peerName, required this.wsMode, Key? key}) : super(key: key);
+  final String myId;
+  final String roomId;
+  const P2PChatPage({required this.peerId, required this.peerName, required this.wsMode, required this.myId, required this.roomId, Key? key}) : super(key: key);
 
   @override
   State<P2PChatPage> createState() => _P2PChatPageState();
@@ -23,6 +62,7 @@ class P2PChatPage extends StatefulWidget {
 class _P2PChatPageState extends State<P2PChatPage> {
   final List<Map<String, dynamic>> messages = [];
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   ChatClient? _client;
   bool _connected = false;
@@ -36,34 +76,34 @@ class _P2PChatPageState extends State<P2PChatPage> {
   }
 
   void _loadHistory() async {
-    // 假设 userId 为 'me'，peerId 为 widget.peerId
-    final url = Uri.parse('http://192.168.1.104:3000/api/history?user1=me&user2=${widget.peerId}');
+    final url = Uri.parse('http://${AppConfig.wsHost}:${AppConfig.wsPort}/api/history?user1=${widget.myId}&user2=${widget.peerId}');
     try {
-      final client = HttpClient();
-      final req = await client.getUrl(url);
-      final resp = await req.close();
-      final body = await resp.transform(utf8.decoder).join();
-      final obj = jsonDecode(body);
+      final response = await http.get(url);
+      final obj = jsonDecode(response.body);
       if (obj['success'] == true && obj['messages'] is List) {
         setState(() {
           for (var msg in obj['messages']) {
             messages.add({
               "type": "text",
               "text": msg['body'],
-              "isMe": msg['from'] == 'me',
+              "isMe": msg['from_user'] == widget.myId, // 判断是否是当前用户发送
+              "from": msg['from_user'],
+              "ts": msg['ts'] ?? ""
             });
           }
         });
       }
     } catch (e) {
       // 可选：错误提示
+      print('Error loading history: $e');
     }
   }
 
   void _initClient() async {
     _client = ChatClient(
-      userId: 'me', // 可替换为实际用户ID
-      roomId: widget.peerId,
+      userId: widget.myId,
+      roomId: widget.roomId,
+      peerId: widget.peerId,
     );
     _client!.isLanMode = widget.wsMode == 'lan';
     await _client!.connect();
@@ -71,17 +111,29 @@ class _P2PChatPageState extends State<P2PChatPage> {
       _connected = true;
     });
     _client!._onMessage = (data) {
-      if (data is String) {
+      print("WebSocket message received: $data"); // 增加日志，打印收到的消息
+      try {
         final obj = jsonDecode(data);
-        if (obj['type'] == 'text') {
+        print("Decoded WebSocket message: $obj"); // 增加日志，打印解析后的消息
+        if (obj['type'] == 'text' && obj['room'] == widget.roomId) {
           setState(() {
             messages.add({
               "type": "text",
               "text": obj['body'],
-              "isMe": obj['from'] == 'me',
+              "isMe": obj['from'] == widget.myId, // 判断是否是当前用户发送
+              "from": obj['from'],
+              "ts": obj['ts'] ?? ""
             });
           });
+
+          // 将消息列表中的条数打印出来
+          print("Message length: ${messages.length}, Latest message: ${obj['body']}, Room: ${obj['room'] ?? 'N/A'}");
+          _scrollToBottom();
+        } else {
+          print("Message ignored: type=${obj['type']}, room=${obj['room']}"); // 增加日志，打印被忽略的消息
         }
+      } catch (e) {
+        print("Error decoding WebSocket message: $e"); // 增加日志，捕获解析错误
       }
     };
   }
@@ -89,19 +141,21 @@ class _P2PChatPageState extends State<P2PChatPage> {
   Future<void> _sendText() async {
     if (_controller.text.trim().isEmpty || _client == null) return;
     setState(() { _sending = true; });
-    try {
-      await _client!.sendText(_controller.text.trim());
-      setState(() {
-        messages.add({
-          "type": "text",
-          "text": _controller.text.trim(),
-          "isMe": true,
-        });
-        _controller.clear();
+    final text = _controller.text.trim();
+    final ts = DateTime.now().toIso8601String();
+    // 先本地渲染，后ws发送
+    setState(() {
+      messages.add({
+        "type": "text",
+        "text": text,
+        "isMe": true,
+        "from": widget.myId,
+        "ts": ts
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('文本消息发送成功'), backgroundColor: Colors.green, duration: Duration(seconds: 1)),
-      );
+      _controller.clear();
+    });
+    try {
+      await _client!.sendText(text, ts: ts);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('文本消息发送失败: $e'), backgroundColor: Colors.red, duration: Duration(seconds: 2)),
@@ -109,6 +163,7 @@ class _P2PChatPageState extends State<P2PChatPage> {
     } finally {
       setState(() { _sending = false; });
     }
+    _scrollToBottom();
   }
 
   Future<void> _sendImage() async {
@@ -138,6 +193,15 @@ class _P2PChatPageState extends State<P2PChatPage> {
       }
     }
   }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -145,58 +209,17 @@ class _P2PChatPageState extends State<P2PChatPage> {
       body: Column(
         children: [
           Expanded(
-            child: Stack(
-              children: [
-                ListView.builder(
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final msg = messages[index];
-                    final isMe = msg["isMe"] ?? false;
-                    return Row(
-                      mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                      children: [
-                        Container(
-                          margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: isMe ? Colors.lightBlueAccent : Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: msg["type"] == "text"
-                              ? Text(
-                                  msg["text"] ?? "",
-                                  style: TextStyle(color: isMe ? Colors.white : Colors.black87, fontSize: 16),
-                                )
-                              : msg["type"] == "image"
-                                  ? Image.file(
-                                      File(msg["path"]),
-                                      width: 120,
-                                      height: 120,
-                                      fit: BoxFit.cover,
-                                    )
-                                  : const SizedBox.shrink(),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                if (_sending)
-                  Positioned.fill(
-                    child: Container(
-                      color: Colors.black.withOpacity(0.08),
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 12),
-                            Text('正在发送...', style: TextStyle(color: Colors.black54)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+            child: ListView.builder(
+              controller: _scrollController,
+              itemCount: messages.length,
+              itemBuilder: (context, index) {
+                final msg = messages[index];
+                final isMe = msg["isMe"] ?? false;
+                return ChatBubble(
+                  text: msg["text"] ?? "",
+                  isMe: isMe,
+                );
+              },
             ),
           ),
           Padding(
@@ -231,22 +254,26 @@ class ChatClient {
   static const int CHUNK_SIZE = 64 * 1024; // 64KB per chunk
   dynamic _ws; // WebSocket or WebSocketChannel
   bool isLanMode = true;
-  final String lanWs = "ws://192.168.1.104:3000";
-  final String remoteWs = "wss://yourserver.example.com:443";
   final String userId;
   final String roomId;
+  final String peerId; // 新增
   Function(dynamic)? _onMessage;
 
-  ChatClient({required this.userId, required this.roomId});
+  ChatClient({required this.userId, required this.roomId, required this.peerId}); // 修改
 
-  String get _wsUrl => isLanMode ? lanWs : remoteWs;
+  String get _wsUrl => isLanMode ? AppConfig.wsUrl : AppConfig.wssUrl;
 
   Future<void> connect() async {
     if (_ws != null) return;
-    _ws = await WebSocket.connect(_wsUrl);
-    _ws.listen(_onMessage, onDone: _onDone, onError: _onError, cancelOnError: true);
-    // 加入房间
-    _ws.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
+    if (kIsWeb) {
+      _ws = HtmlWebSocketChannel.connect(_wsUrl);
+      _ws.stream.listen(_onMessage, onDone: _onDone, onError: _onError, cancelOnError: true);
+      _ws.sink.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
+    } else {
+      _ws = IOWebSocketChannel.connect(_wsUrl);
+      _ws.stream.listen(_onMessage, onDone: _onDone, onError: _onError, cancelOnError: true);
+      _ws.sink.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
+    }
   }
 
   void _onDone() {
@@ -259,20 +286,29 @@ class ChatClient {
 
   void disconnect() {
     if (_ws == null) return;
-    _ws.close();
+    if (kIsWeb) {
+      _ws.sink.close();
+    } else {
+      _ws.sink.close();
+    }
     _ws = null;
   }
 
-  Future<void> sendText(String text) async {
+  Future<void> sendText(String text, {String? ts}) async {
     if (_ws == null) await connect();
     final msg = {
       "type": "text",
       "room": roomId,
       "from": userId,
+      "to": peerId, // 新增，确保后端保存消息
       "body": text,
-      "ts": DateTime.now().toIso8601String()
+      "ts": ts ?? DateTime.now().toIso8601String()
     };
-    _ws.add(jsonEncode(msg));
+    if (kIsWeb) {
+      _ws.sink.add(jsonEncode(msg));
+    } else {
+      _ws.sink.add(jsonEncode(msg));
+    }
   }
 
   Future<void> sendImage(Uint8List imageBytes, {String format = "jpeg", int quality = 75}) async {
@@ -301,7 +337,11 @@ class ChatClient {
       "chunks": totalChunks,
       "ts": DateTime.now().toIso8601String()
     };
-    _ws.add(jsonEncode(header));
+    if (kIsWeb) {
+      _ws.sink.add(jsonEncode(header));
+    } else {
+      _ws.sink.add(jsonEncode(header));
+    }
     for (int i = 0; i < totalChunks; i++) {
       final start = i * ChatClient.CHUNK_SIZE;
       final end = (start + ChatClient.CHUNK_SIZE < totalSize) ? start + ChatClient.CHUNK_SIZE : totalSize;
@@ -314,8 +354,13 @@ class ChatClient {
         "room": roomId,
         "from": userId
       });
-      _ws.add(chunkHeader);
-      _ws.add(chunk);
+      if (kIsWeb) {
+        _ws.sink.add(chunkHeader);
+        _ws.sink.add(chunk);
+      } else {
+        _ws.sink.add(chunkHeader);
+        _ws.sink.add(chunk);
+      }
       await Future.delayed(Duration(milliseconds: 5));
     }
     final finish = {
@@ -325,6 +370,10 @@ class ChatClient {
       "from": userId,
       "ts": DateTime.now().toIso8601String()
     };
-    _ws.add(jsonEncode(finish));
+    if (kIsWeb) {
+      _ws.sink.add(jsonEncode(finish));
+    } else {
+      _ws.sink.add(jsonEncode(finish));
+    }
   }
 }

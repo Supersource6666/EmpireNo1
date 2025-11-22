@@ -88,7 +88,12 @@ function sendFriendRequest(fromUser, toUser, callback) {
 }
 
 function getFriendRequests(userId, callback) {
-  db.all('SELECT * FROM friend_requests WHERE to_user = ? AND status = "pending"', [userId], callback);
+  db.all(`
+    SELECT fr.*, u.username as from_user_name
+    FROM friend_requests fr
+    JOIN users u ON fr.from_user = u.id
+    WHERE fr.to_user = ? AND fr.status = "pending"
+  `, [userId], callback);
 }
 
 function handleFriendRequest(requestId, accept, callback) {
@@ -98,10 +103,13 @@ function handleFriendRequest(requestId, accept, callback) {
       if (accept) {
         // 双方加为好友
         addFriend(req.from_user, req.to_user, function(e2) {
-          callback(e2);
+          addFriend(req.to_user, req.from_user, function(e3) {
+            // 回调返回双方id，便于ws推送
+            callback(e2 || e3, req.from_user, req.to_user);
+          });
         });
       } else {
-        callback(e);
+        callback(e, req.from_user, req.to_user);
       }
     });
   });

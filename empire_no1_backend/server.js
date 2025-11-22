@@ -10,6 +10,18 @@ const WebSocket = require('ws');
 const http = require('http');
 
 const app = express();
+// 允许CORS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*'); // 或指定你的web页面IP
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+
 app.use(bodyParser.json());
 
 // 用户注册
@@ -109,8 +121,14 @@ app.get('/api/friend_requests', (req, res) => {
 
 app.post('/api/handle_friend_request', (req, res) => {
   const { requestId, accept } = req.body;
-  handleFriendRequest(requestId, accept, (err) => {
+  handleFriendRequest(requestId, accept, (err, fromUserId, toUserId) => {
     if (err) return res.status(500).json({ error: err.message });
+    // 通知双方刷新好友列表
+    [fromUserId, toUserId].forEach(uid => {
+      if (userSockets[uid] && userSockets[uid].readyState === WebSocket.OPEN) {
+        userSockets[uid].send(JSON.stringify({ type: 'friend_update' }));
+      }
+    });
     res.json({ success: true });
   });
 });
@@ -155,14 +173,15 @@ wss.on('connection', (ws, req) => {
           signal: data.signal
         }));
       }
-    } else if (data.type === 'message') {
-      // 聊天消息广播
+    } else if (data.type === 'message' || data.type === 'text') {
+      // Ensure the room field is included in the broadcasted message
       broadcast(roomId, {
-        type: 'message',
+        type: data.type,
         from: userId,
-        body: data.body
+        body: data.body,
+        room: roomId // Add the room field explicitly
       });
-      // 保存消息到数据库
+      // Save the message to the database
       if (data.to) {
         saveMessage(userId, data.to, data.body, new Date().toISOString(), () => {});
       }
