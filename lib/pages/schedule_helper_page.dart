@@ -64,7 +64,7 @@ class _ScheduleHelperPageState extends State<ScheduleHelperPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Add Schedule Event'),
+        title: const Text('添加新事件'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -109,8 +109,8 @@ class _ScheduleHelperPageState extends State<ScheduleHelperPage> {
               ListTile(
                 title: Text(
                   selectedTime == null
-                      ? 'Select Time'
-                      : 'Time: ${selectedTime.toString()}',
+                      ? '选择时间'
+                      : '时间: ${selectedTime.toString()}',
                 ),
                 trailing: const Icon(Icons.schedule),
                 onTap: () async {
@@ -490,16 +490,16 @@ class _ScheduleHelperPageState extends State<ScheduleHelperPage> {
                 child: Column(
                   children: [
                     const Text(
-                      'Overall Statistics',
+                      '总体统计',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _buildStatItem('Total Events', allEvents.length.toString(), Colors.blue),
-                        _buildStatItem('Completed', completedEvents.length.toString(), Colors.green),
-                        _buildStatItem('Pending', pendingEvents.length.toString(), Colors.orange),
+                        _buildStatItem('事件总计', allEvents.length.toString(), Colors.blue),
+                        _buildStatItem('已完成', completedEvents.length.toString(), Colors.green),
+                        _buildStatItem('待处理', pendingEvents.length.toString(), Colors.orange),
                       ],
                     ),
                   ],
@@ -508,7 +508,7 @@ class _ScheduleHelperPageState extends State<ScheduleHelperPage> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'By Assignee',
+              '按负责人',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -521,7 +521,7 @@ class _ScheduleHelperPageState extends State<ScheduleHelperPage> {
             }),
             const SizedBox(height: 16),
             const Text(
-              'By Priority',
+              '按优先级',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -542,7 +542,7 @@ class _ScheduleHelperPageState extends State<ScheduleHelperPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Schedule Helper'),
+        title: const Text('日程助手'),
         elevation: 0,
       ),
       body: Column(
@@ -573,15 +573,15 @@ class _ScheduleHelperPageState extends State<ScheduleHelperPage> {
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.calendar_today),
-            label: 'Calendar',
+            label: '日历',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.list),
-            label: 'Events',
+            label: '事件',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.bar_chart),
-            label: 'Stats',
+            label: '统计',
           ),
         ],
       ),

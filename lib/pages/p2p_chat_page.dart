@@ -6,9 +6,8 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import 'package:universal_io/io.dart';
-import 'package:web_socket_channel/io.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:web_socket_channel/html.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:http/http.dart' as http;
 import '../../config.dart';
 
@@ -321,15 +320,9 @@ class ChatClient {
     
     try {
       print('[ChatClient][connect] 开始连接, wsUrl: $_wsUrl');
-      if (kIsWeb) {
-        _ws = HtmlWebSocketChannel.connect(_wsUrl);
+        _ws = WebSocketChannel.connect(Uri.parse(_wsUrl));
         _ws.stream.listen((msg) => _onMessage?.call(msg), onDone: _onDone, onError: _onError, cancelOnError: false);
         _ws.sink.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
-      } else {
-        _ws = IOWebSocketChannel.connect(_wsUrl);
-        _ws.stream.listen((msg) => _onMessage?.call(msg), onDone: _onDone, onError: _onError, cancelOnError: false);
-        _ws.sink.add(jsonEncode({"type": "join", "room": roomId, "from": userId}));
-      }
       _reconnectAttempts = 0;
       _onConnectionStateChanged?.call(true);
       print('[ChatClient][connect] 连接成功');

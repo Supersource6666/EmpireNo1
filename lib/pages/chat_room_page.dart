@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:http/http.dart' as http;
 import 'p2p_chat_page.dart';
@@ -18,7 +17,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 	final List<Map<String, dynamic>> messages = [];
 	final TextEditingController _controller = TextEditingController();
 
-	WebSocketChannel? _wsChannel;
+	dynamic _wsChannel;
 	bool _wsConnected = false;
 
 	String _username = "访客";
@@ -65,7 +64,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 				? 'ws://${AppConfig.wsHost}:${AppConfig.wsPort}'
 				: 'wss://yourserver.example.com:443';
 		try {
-			_wsChannel = IOWebSocketChannel.connect(wsUrl);
+			_wsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
 			_wsChannel!.sink.add(
 				jsonEncode({"type": "join", "from": _userId, "room": _userId}),
 			);
