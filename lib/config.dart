@@ -19,7 +19,9 @@ class AppConfig {
   static const String DEPLOYMENT_MODE = 'direct';  // ← 改为 'direct' 使用直连
   
   // 服务器地址（根据你的实际环境修改）
-  static const String wsHost = '192.168.1.102';
+  // static const String wsHost = '192.168.1.102';
+
+  static const String wsHost = '192.168.200.211';
   
   // ========== 根据部署模式自动选择端口 ==========
   static const int wsPort = DEPLOYMENT_MODE == 'nginx' ? 80 : 3000;

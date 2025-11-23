@@ -228,7 +228,7 @@ class _P2PChatPageState extends State<P2PChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    print('[P2PChat][build] 渲染P2PChatPage, 消息数: ${messages.length}');
+    // print('[P2PChat][build] 渲染P2PChatPage, 消息数: ${messages.length}');
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -257,7 +257,7 @@ class _P2PChatPageState extends State<P2PChatPage> {
               itemBuilder: (context, index) {
                 final msg = messages[index];
                 final isMe = msg["isMe"] ?? false;
-                print('[P2PChat][build] 渲染消息 index=$index, text=${msg["text"]}, isMe=$isMe, from=${msg["from"]}');
+                // print('[P2PChat][build] 渲染消息 index=$index, text=${msg["text"]}, isMe=$isMe, from=${msg["from"]}');
                 return ChatBubble(
                   text: msg["text"] ?? "",
                   isMe: isMe,
